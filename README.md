@@ -100,4 +100,8 @@ chmod +x ~/.claude/hooks/reminder.sh
 
 VFF는 행동 패턴만 바꾼다. Sonnet이 모르는 도메인 지식을 채워주지 않는다. 순수 추론 천장이 필요한 과제(복잡한 기술 진단, 낯선 도메인 심층 분석)는 Opus 라우팅이 여전히 정답이다. VFF는 그 경계를 사용자에게 먼저 알리도록 설계돼 있다.
 
-출처: 전체 자작. 실측 데이터는 2026-06-11 Fable 5 ultracode 환경 단판 표본이며, 심판 전원이 Opus 계열이고 과제가 문서·조언형에 편중돼 있다.
+출처:
+
+- **Fable 5 운영 구조 원본**: [elder-plinius/CL4R1T4S — CLAUDE-FABLE-5.md](https://github.com/elder-plinius/CL4R1T4S/blob/main/ANTHROPIC/CLAUDE-FABLE-5.md). VFF의 8섹션(커뮤니케이션·추론·도구 규율·검증·코드·글쓰기·톤·토큰 절약) 구조는 이 파일에 공개된 Fable 5 시스템 프롬프트에서 운영 원칙을 추출·재구성한 것이다.
+- 실측 데이터: 2026-06-11 Fable 5 ultracode 환경 단판 표본. 심판 전원 Opus 계열, 과제 문서·조언형 편중.
+- 스킬·에이전트·훅 코드: 전체 자작.
