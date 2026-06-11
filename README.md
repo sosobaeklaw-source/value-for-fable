@@ -1,6 +1,6 @@
 # Value-for-Fable (VFF)
 
-Fable 5 수준의 품질을 Sonnet 단가에 구현한 가성비 AI 운영 모델. 프롬프트·에이전트·훅 4개 자산으로 Sonnet에 Fable 5의 운영 구조를 이식해, 비싼 모델 없이도 실용적인 고품질 출력을 뽑아내는 구조를 직접 구축했다.  
+Fable 5 수준의 품질을 Sonnet 단가에 — 가성비 AI 운영 모델을 직접 구축한 Claude Code 프로젝트.  
 **같은 Sonnet인데 VFF 유무로 5승 vs 0승** — 3-way 블라인드 실측(2026-06-11) 결과.
 
 ---
