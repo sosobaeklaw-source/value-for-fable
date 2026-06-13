@@ -4,7 +4,7 @@
 # 동작: 아래 두 조건을 모두 충족할 때만 짧은 리마인더를 컨텍스트로 주입, 아니면 침묵(비용 0).
 #   조건1 (긴 세션): transcript 파일이 THRESHOLD 바이트 초과 — 스킬 본문 주입이 뒤로 밀려
 #                    운영 구조가 희미해지는 시점. 기본 400KB, 필요시 아래 값만 수정.
-#   조건2 (VFF 활성): output style이 value-for-fable 이거나(상시 모드),
+#   조건2 (VFF 활성): output style이 VFF 이거나(상시 모드. 플러그인 설치 시 value-for-fable:VFF로 네임스페이스됨),
 #                    transcript에 "VFF 적용" 마커가 마지막 "VFF 해제됨" 이후 존재(스킬 모드).
 
 THRESHOLD=400000
@@ -20,7 +20,7 @@ size=$(wc -c < "$tp" 2>/dev/null | tr -d ' ')
 style_on=0
 cwd=$(printf '%s' "$input" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
 for f in "$HOME/.claude/settings.json" "$cwd/.claude/settings.local.json" "$cwd/.claude/settings.json"; do
-  [ -f "$f" ] && grep -qs '"outputStyle"[[:space:]]*:[[:space:]]*"[Vv]alue.[Ff]or.[Ff]able"' "$f" && style_on=1 && break
+  [ -f "$f" ] && grep -qsiE '"outputStyle"[[:space:]]*:[[:space:]]*"(value-for-fable:)?vff"' "$f" && style_on=1 && break
 done
 
 # 마커는 리터럴 한글과 \uXXXX 이스케이프 두 형태 모두 탐지(transcript 기록 방식 방어)

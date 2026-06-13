@@ -1,0 +1,12 @@
+{
+  "name": "value-for-fable",
+  "version": "1.0.0",
+  "description": "Fable 5 수준의 품질을 Sonnet 단가에 — VFF 스킬·에이전트·output style(VFF/Opus-Fable)·드리프트 방지 훅 묶음",
+  "author": {
+    "name": "itsinseong",
+    "url": "https://github.com/itsinseong"
+  },
+  "homepage": "https://github.com/itsinseong/value-for-fable",
+  "repository": "https://github.com/itsinseong/value-for-fable",
+  "keywords": ["vff", "value-for-fable", "fable", "sonnet", "output-style", "cost-efficiency"]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "itsinseong",
+  "description": "itsinseong의 Claude Code 플러그인 마켓플레이스",
+  "owner": {
+    "name": "itsinseong"
+  },
+  "plugins": [
+    {
+      "name": "value-for-fable",
+      "source": "./",
+      "description": "Fable 5 수준의 품질을 Sonnet 단가에 — VFF 운영 구조 묶음(스킬·에이전트·output style·훅)"
+    }
+  ]
+}
