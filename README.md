@@ -1,7 +1,7 @@
 # Value-for-Fable (VFF)
 
 Opus에 근접한 품질을 Sonnet 단가에 — 가성비 AI 운영 모델을 직접 구축한 Claude Code 프로젝트.  
-**싼 AI(Sonnet)로 비싼 Opus와 블라인드 테스트에서 사실상 비겼다([bench/](bench/RESULTS.md)) — 그것도 답 1건당 비용 3분의 1로.** 비결은 토큰을 아끼는 게 아니라 "함부로 단정 말고 먼저 따져보는" 사고 습관을 싼 AI에 심은 것이다.
+**Sonnet으로 Opus와 블라인드 테스트에서 사실상 비겼다([bench/](bench/RESULTS.md)) — 그것도 답 1건당 비용 3분의 1로.** 비결은 토큰을 아끼는 게 아니라 "함부로 단정 말고 먼저 따져보는" 사고 습관을 싼 AI에 심은 것이다.
 
 ---
 
