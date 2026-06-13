@@ -1,4 +1,4 @@
-# Value-for-Fable (𝐕𝐅𝐅)
+# 𝐕𝐚𝐥𝐮𝐞-𝐟𝐨𝐫-𝐅𝐚b𝐥𝐞 (𝐕𝐅𝐅)
 
 **Opus에 근접한 품질을 Sonnet 단가에 — 가성비 AI 운영 모델을 직접 구축한 Claude Code 프로젝트**
 
