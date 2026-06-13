@@ -74,4 +74,4 @@ VFF를 4암으로 갈라 비교(`ablation_phase2b_raw.json`): 풀 v1 / VFF−압
 
 ## 재현 방법
 
-원자료: Phase 1 `raw.json` / ablation `ablation_phase2b_raw.json` / v2 `v2_raw.json` / v3 `v3_raw.json` / 중립 재채점 `rejudge_scores.json`·`rejudge_v1v2opus_scores.json`. 재채점은 `rejudge_workflow.js`·`rejudge_v1v2opus.js`(답변 임베드, 새 생성 0)를 Workflow로 실행. 객관 채점 `python3 score_objective.py`. 출처: 하네스·과제·채점기 전부 자작. VFF v2 내용은 `output-styles/vff-v2.md`.
+원자료: Phase 1 `raw.json` / ablation `ablation_phase2b_raw.json` / v2 `v2_raw.json` / v3 `v3_raw.json` / 중립 재채점 `rejudge_scores.json`·`rejudge_v1v2opus_scores.json`. 최종 결론(v1→v2, v2 vs Opus)은 `rejudge_workflow.js`·`rejudge_v1v2opus.js`(답변 임베드, 새 생성 0)를 Workflow로 재실행하면 재현된다. (Phase 1 객관 과제는 4조건 전부 통과해 변별이 없었고 최종 결론에 미반영 — 채점 코드는 repo 정리상 제외.) 출처: 하네스·과제 전부 자작. VFF v2 내용은 `output-styles/vff-v2.md`.
