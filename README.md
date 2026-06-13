@@ -2,7 +2,7 @@
 
 **Opus에 근접한 품질을 Sonnet 단가에 — 가성비 AI 운영 모델을 직접 구축한 Claude Code 프로젝트**
 
-***🡒 PRO 사용자들 추천, OPUS 사용자 들에게 비추천***
+***🡒 PRO 사용자들에겐 추천, OPUS 사용자 들에겐 비추천***
 
 Fable5 구조를 넣은 Sonnet이 Opus와 블라인드 테스트에서 사실상 비겼다!!
 그것도 답 1건당 비용 3분의 1로!!([bench/](bench/RESULTS.md)) 
