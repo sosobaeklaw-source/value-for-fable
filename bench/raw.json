@@ -1,0 +1,331 @@
+{
+  "genResults": [
+    {
+      "taskId": "H1",
+      "type": "subj",
+      "condition": "sonnet_vff",
+      "trial": 0,
+      "answer": "코드를 보지 않고 단정할 수 없는 상황이라 원인 후보 나열이 아닌 좁히는 순서로 설명한다.\n\n가장 먼저 해야 할 일은 500이 날 때 서버 로그에서 traceback을 확인하는 것이다. FastAPI는 예외가 발생하면 기본적으로 traceback을 stderr에 남기고 응답에는 \"Internal Server Error\"만 돌려보낸다. 배포 환경(컨테이너, 클라우드 플랫폼)의 로그 수집기에서 500 발생 시각과 traceback을 대조하면 원인 유형이 바로 드러난다. 로그가 없거나 너무 적으면 uvicorn 실행 옵션에 `--log-level debug`를 추가하거나, FastAPI의 exception handler에서 `logging.exception(e)`로 직접 남기도록 먼저 설정한다.\n\ntraceback을 확인했을 때 어떤 종류의 오류인지에 따라 갈린다.\n\nDB / 외부 연결 관련 오류(OperationalError, TimeoutError, BrokenPipe 계열)가 보이면 연결 풀 소진이나 idle 타임아웃 문제가 가장 흔하다. SQLAlchemy를 쓴다면 `pool_pre_ping=True`와 `pool_recycle` 설정을 확인하고, 비동기 ORM(SQLModel/databases 등)을 쓴다면 커넥션을 요청 단위로 정상 반환하는지 본다.\n\nNone 참조, KeyError, AttributeError가 보이면 특정 요청 데이터에서만 터지는 조건 분기 누락이다. 간헐적이라는 단서와 잘 맞는다. 실패한 요청의 payload나 query parameter를 로그에서 복기해서 어떤 입력에서 발생하는지 패턴을 찾는다.\n\nasyncio 관련 오류(RuntimeError: Task/Future exception was never retrieved, 또는 concurrent.futures 오류)가 보이면 async 엔드포인트 안에서 blocking I/O를 직접 호출하거나 반대로 sync 함수에서 event loop를 잘못 다루는 경우다. `def` vs `async def` 혼용, `asyncio.run()` 중첩 등이 원인이 된다.\n\n메모리/리소스 부족(OOM kill, ulimit 초과)이면 traceback 없이 프로세스가 죽고 재시작되는 형태로 나타난다. 간헐적 500의 원인이 이 경우 서버 메트릭(메모리, 스왑, FD 수)이 피크와 겹치는지 확인한다.\n\n정리하면, 지금 당장 해야 하는 한 가지는 500 발생 시각의 traceback을 확보하는 것이다. 그것만 있으면 위 분기 중 어디인지 바로 좁혀진다. traceback을 붙여주면 구체적으로 이어갈 수 있다.",
+      "charCount": 1291
+    },
+    {
+      "taskId": "H1",
+      "type": "subj",
+      "condition": "sonnet_vff",
+      "trial": 1,
+      "answer": "코드를 보지 않은 상태라 원인을 단정할 수 없고, 간헐적이라는 단서 하나가 핵심이다.\n\n\"항상 500\"이 아니라 \"가끔 500\"이면 상태·타이밍·외부 의존성 중 하나가 개입한다는 뜻이다. 가장 많이 나타나는 패턴 세 가지를 좁혀보는 순서로 설명한다.\n\n먼저 로그부터 확인한다. FastAPI는 500 반환 시 서버 stderr에 traceback을 남긴다. 배포 환경에 따라 `journalctl -u 서비스명`, CloudWatch, Railway/Render 로그 탭 등에 있다. traceback 한 줄만 봐도 아래 세 후보 중 어디인지 거의 갈린다.\n\n후보 1: 비동기 경쟁 조건. FastAPI는 async/await 기반인데, DB 커넥션 풀이나 외부 HTTP 세션을 글로벌로 공유하면 동시 요청이 몰릴 때 RuntimeError: Event loop is closed나 커넥션 고갈이 간헐적으로 터진다. 요청이 많을 때 500 빈도가 올라가는지 보면 이 후보를 확인할 수 있다.\n\n후보 2: 외부 의존성 타임아웃·실패. DB, Redis, 외부 API 등이 간헐적으로 느려지거나 커넥션을 끊을 때, 에러 처리가 없으면 exception이 그대로 500으로 올라온다. traceback에 DB 드라이버명이나 httpx/requests 호출이 보이면 이쪽이다.\n\n후보 3: 특정 입력값에서 터지는 예외. 요청 파라미터 조합에 따라 validation을 통과했지만 내부 로직에서 KeyError, AttributeError, None 참조 등이 발생하는 경우다. 이건 특정 엔드포인트에서만 500이 나거나, 특정 페이로드 패턴이 반복되는지 보면 구별된다.\n\n가장 싼 첫 번째 행동은 traceback 수집이다. 로그에서 500 응답 직전 exception 줄을 찾아 붙여주면 원인을 좁힐 수 있다. 로그가 없거나 너무 짧게 설정된 상태라면, 먼저 FastAPI에 전역 exception handler를 달아 모든 unhandled exception을 구조화 로그로 남기는 것이 두 번째 행동이다.\n\n```python\n@app.exception_handler(Exception)\nasync def unhandled_exception_handler(request, exc):\n    logger.error(\"Unhandled exception\", exc_info=exc, extra={\"path\": request.url.path})\n    return JSONResponse(status_code=500, content={\"detail\": \"Internal server error\"})\n```\n\n이걸 달면 다음 번 500 발생 시 어떤 경로에서 어떤 예외가 터졌는지 정확히 찍힌다.",
+      "charCount": 1335
+    },
+    {
+      "taskId": "H1",
+      "type": "subj",
+      "condition": "sonnet_plain",
+      "trial": 0,
+      "answer": "코드를 보지 않은 상태에서 간헐적 500 에러의 일반적인 원인과 진단 접근법을 정리한다.\n\n---\n\n## 간헐적 500 에러의 주요 원인 후보\n\n### 1. 동시성 문제 (가장 흔함)\n\nFastAPI는 async/await 기반인데, 동기 코드를 async 함수 안에서 직접 호출하면 이벤트 루프가 블로킹된다.\n\n- DB 커넥션을 여러 요청이 동시에 잡으려다 커넥션 풀 고갈\n- asyncio.Lock 없이 공유 상태(전역 변수, 캐시 딕셔너리 등)를 여러 코루틴이 동시에 수정\n\n### 2. 외부 의존성 타임아웃\n\n- DB, Redis, 외부 API 호출이 간헐적으로 느려지거나 연결이 끊김\n- httpx, aiohttp 클라이언트를 요청마다 새로 열고 닫으면 연결 고갈\n\n### 3. 예외 처리 누락\n\n- 특정 입력값 조합에서만 터지는 None 참조, KeyError, 파싱 실패\n- 외부 호출 실패를 try/except로 잡지 않아 그대로 500 전파\n\n### 4. 메모리/리소스 누수\n\n- 파일 핸들, DB 세션을 finally나 with로 닫지 않아 오래 쓰다 보면 고갈\n- 컨테이너 배포라면 메모리 한도 도달 후 OOM으로 프로세스 재시작\n\n### 5. 환경/배포 차이\n\n- 로컬엔 없는 환경변수 누락, 인증서 만료\n- 멀티 워커(uvicorn --workers N)일 때 워커 간 공유되지 않는 인메모리 상태에 의존\n\n---\n\n## 진단 접근법 (순서대로)\n\n### Step 1. 로그에서 스택 트레이스 확인\n\n500이 나도 FastAPI는 기본적으로 내부 예외 전체를 로그에 남긴다.\n\n```bash\njournalctl -u your-service -n 200\ndocker logs your-container --tail 200\n```\n\n스택 트레이스 한 줄이 원인 후보의 90%를 좁혀준다. 트레이스 없이 추측하는 건 비효율적이다.\n\n### Step 2. 500 발생 패턴 파악\n\n다음 질문에 답해보면 원인 범위가 크게 좁혀진다.\n\n| 질문 | 원인 힌트 |\n|---|---|\n| 특정 엔드포인트에서만 나나? | 그 엔드포인트 고유 로직 문제 |\n| 트래픽 많을 때만 나나? | 동시성, 커넥션 풀 |\n| 일정 시간 후 나나? | 리소스 누수, 세션 만료 |\n| 특정 입력값에서만 나나? | 예외 처리 누락 |\n| 재시작하면 한동안 안 나나? | 누수성 문제 |\n\n### Step 3. 에러 캡처 강화\n\n배포 코드에 아직 없다면 아래를 추가한다.\n\n```python\nfrom fastapi import Request\nfrom fastapi.responses import JSONResponse\nimport traceback, logging\n\nlogger = logging.getLogger(__name__)\n\n@app.exception_handler(Exception)\nasync def global_exception_handler(request: Request, exc: Exception):\n    logger.error(\n        \"Unhandled exception\",\n        exc_info=exc,\n        extra={\"path\": request.url.path, \"method\": request.method}\n    )\n    return JSONResponse(status_code=500, content={\"detail\": \"Internal Server Error\"})\n```\n\n이 핸들러가 있으면 어떤 예외가 어느 경로에서 났는지 반드시 남는다.\n\n### Step 4. DB/외부 연결 점검\n\nSQLAlchemy를 쓴다면 커넥션 풀 설정 확인.\n\n```python\nengine = create_async_engine(\n    DATABASE_URL,\n    pool_size=10,\n    max_overflow=20,\n    pool_timeout=30,\n    pool_recycle=1800,  # 이게 없으면 DB가 연결을 끊어도 모름\n)\n```\n\n### Step 5. Sentry 등 에러 추적 도구 연동\n\n간헐적 에러는 재현이 어려워서 사후 분석이 핵심이다. Sentry 무료 플랜으로 충분하다.\n\n```python\nimport sentry_sdk\nfrom sentry_sdk.integrations.fastapi import FastApiIntegration\n\nsentry_sdk.init(dsn=\"...\", integrations=[FastApiIntegration()])\n```\n\n---\n\n## 결론: 우선순위\n\n1. 로그 스택 트레이스 확인 — 이게 전부다. 없으면 Step 3 핸들러 먼저 추가\n2. 패턴 파악 (트래픽, 시간, 엔드포인트 상관관계)\n3. 코드를 볼 수 있으면 DB 세션 관리, 전역 상태 공유, 외부 호출 예외처리 순으로 검토\n\n코드나 스택 트레이스를 공유해주면 원인을 훨씬 정확하게 짚을 수 있다.",
+      "charCount": 2402
+    },
+    {
+      "taskId": "H1",
+      "type": "subj",
+      "condition": "sonnet_plain",
+      "trial": 1,
+      "answer": "코드를 보지 않은 상태에서 원인을 특정할 수는 없지만, 간헐적 500 에러의 일반적인 원인 패턴과 진단 접근법을 구조적으로 안내한다.\n\n---\n\n## 간헐적 500 에러: 원인 카테고리\n\n### 1. 외부 의존성 타임아웃 / 연결 실패\n- DB 커넥션 풀 고갈 (SQLAlchemy `pool_size` 초과)\n- Redis, 외부 API 간헐적 응답 지연 -> 타임아웃 미처리\n- 커넥션을 닫지 않아 풀이 점점 소진되는 누수\n\n### 2. 동시성 / 비동기 버그\n- FastAPI는 async 기반인데, `async def` 핸들러 안에서 블로킹 I/O (예: `requests.get`, `time.sleep`) 호출 -> 이벤트 루프 점유 -> 특정 부하에서만 터짐\n- 반대로 `def` 핸들러에서 `await` 없이 코루틴 호출 -> 코루틴 객체가 그냥 무시됨\n\n### 3. 상태(state) 문제\n- 전역 변수나 클래스 인스턴스를 요청 간 공유 -> 레이스 컨디션\n- 리스트/딕셔너리를 기본값 인자로 사용 (Python 기본값 공유 버그)\n\n### 4. 예외 처리 누락\n- 특정 입력값 조합에서만 발생하는 `KeyError`, `AttributeError`, `None` 역참조\n- 외부 호출 실패를 `try/except` 없이 두면 500으로 올라옴\n\n### 5. 메모리 / 리소스 고갈\n- 요청마다 파일을 열고 닫지 않음 (`with` 미사용)\n- 큰 데이터를 메모리에 통째로 올리는 작업이 겹치면 OOM\n\n---\n\n## 진단 접근 순서\n\n**1단계: 로그부터**\n\nFastAPI의 기본 500은 스택트레이스를 stderr에 찍는다. uvicorn/gunicorn 로그에서 500 직전 스택트레이스를 찾아 어느 줄, 어느 함수인지 확인한다.\n\n**2단계: 재현 조건 파악**\n\n- 특정 엔드포인트에서만 나는가?\n- 트래픽이 몰릴 때만 나는가 (동시성 문제)?\n- 특정 데이터/입력값일 때만 나는가 (로직 버그)?\n- 배포 직후 한동안 안 나다가 나는가 (리소스 누수)?\n\n**3단계: 전역 예외 핸들러 추가 (임시)**\n\n```python\nfrom fastapi import Request\nfrom fastapi.responses import JSONResponse\nimport traceback\n\n@app.exception_handler(Exception)\nasync def global_exception_handler(request: Request, exc: Exception):\n    # 운영환경에선 상세 내용을 외부에 노출하지 말 것\n    print(traceback.format_exc())  # 또는 logger.error(...)\n    return JSONResponse(status_code=500, content={\"detail\": \"Internal error\"})\n```\n\n이렇게 하면 어떤 예외가 어디서 발생했는지 로그로 잡힌다.\n\n**4단계: Sentry 또는 로깅 미들웨어**\n\n간헐적 에러는 재현이 어려워서 관찰 도구가 핵심이다. Sentry 없이도 `logging` 모듈로 요청/응답을 미들웨어에서 찍는 것만으로도 많이 좁혀진다.\n\n---\n\n## 코드 볼 때 체크포인트\n\n1. `async def` 핸들러 안에 동기 블로킹 호출이 있는가\n2. DB 세션/커넥션을 `finally` 또는 `with` 없이 열고 있는가\n3. `except` 없이 외부 API 호출하는 곳이 있는가\n4. 전역 가변 객체(리스트, 딕셔너리)를 여러 요청에서 공유하는가\n\n---\n\n**요약**: 로그에서 스택트레이스를 먼저 확인하고, 재현 조건(어느 엔드포인트, 어떤 부하, 어떤 입력)을 좁히는 게 가장 빠른 경로다. 코드를 보여주면 구체적으로 짚어줄 수 있다.",
+      "charCount": 1838
+    },
+    {
+      "taskId": "H1",
+      "type": "subj",
+      "condition": "sonnet_generic",
+      "trial": 0,
+      "answer": "코드 없이는 원인을 특정할 수 없고, 가능성 좁히는 접근법을 드립니다.\n\n## 간헐적 500의 주요 원인 패턴\n\n**1. DB/외부 연결 풀 고갈 또는 타임아웃**\n- 가장 흔한 원인. 커넥션이 반납 안 되거나 풀 크기 초과\n- 확인: DB 커넥션 수 모니터링, pool_size / max_overflow 설정\n\n**2. 비동기 코드 실수 (async/await)**\n- async def 핸들러에서 blocking 작업(동기 DB 드라이버, time.sleep, requests 등) 직접 호출\n- 이벤트 루프 블록 → 일부 요청만 타임아웃/에러\n\n**3. 전역 상태 / 공유 객체 race condition**\n- 전역 변수나 싱글턴을 여러 요청이 동시에 수정\n- 부하 낮을 때 안 터지고, 동시 요청 시 터지는 패턴\n\n**4. 외부 API 호출 실패를 잡지 않음**\n- 써드파티 API가 간헐적 실패 → 예외처리 없으면 500으로 올라옴\n\n**5. 메모리/파일 디스크립터 누수**\n- 오래 운영 시 서서히 악화, 재시작하면 잠시 괜찮아짐\n\n## 접근 순서\n\n1. **에러 로그부터** - traceback 전체를 봐야 함. FastAPI 기본 로그엔 안 찍힐 수 있으니 미들웨어로 강제 로깅 추가:\n\n```python\nimport traceback\nfrom fastapi import Request\nfrom fastapi.responses import JSONResponse\n\n@app.exception_handler(Exception)\nasync def global_exception_handler(request: Request, exc: Exception):\n    traceback.print_exc()\n    return JSONResponse(status_code=500, content={\"detail\": \"internal error\"})\n```\n\n2. **재현 조건 파악** - 특정 엔드포인트인지, 부하 높을 때인지, 특정 입력값인지\n\n3. **의존성 수명 확인** - Depends(get_db) 같은 DB 세션이 제대로 닫히는지\n\n4. **동기/비동기 혼용 확인** - async def 안에 requests.get() 같은 동기 IO 없는지\n\n로그에서 찍힌 traceback을 공유하면 원인을 바로 특정할 수 있습니다.",
+      "charCount": 1145
+    },
+    {
+      "taskId": "H1",
+      "type": "subj",
+      "condition": "sonnet_generic",
+      "trial": 1,
+      "answer": "FastAPI 간헐적 500의 원인은 코드 없이 단정 불가하나, 진단 접근법과 흔한 원인을 정리했다.\n\n**먼저 할 것: 로그에서 traceback 확인**\n```bash\njournalctl -u your-service -n 200 --no-pager\n# 또는\ntail -n 200 /var/log/your-app.log\n```\n500 발생 시점의 traceback이 있으면 원인의 90%는 거기 있다.\n\n---\n\n**간헐적 500의 흔한 원인**\n\n1. DB/외부 연결 고갈 또는 타임아웃 — 커넥션 풀 한도 초과, 외부 API 타임아웃 후 예외 미처리\n2. async/await 버그 — 블로킹 IO를 이벤트 루프에서 혼용, await 누락\n3. 동시성 문제 — 전역 상태/공유 객체를 여러 요청이 동시에 수정\n4. OOM — 특정 요청이 메모리 급증 후 워커 kill (`dmesg | grep oom` 확인)\n5. 예외 처리 누락 — 특정 입력값에서만 발생하는 KeyError, None 참조 등\n\n---\n\n**진단 순서**\n1. traceback 확인 — 어떤 엔드포인트, 어떤 예외인지\n2. 재현 조건 파악 — 특정 엔드포인트만? 부하 높을 때?\n3. 전역 exception handler 추가로 놓치는 예외 전체 캡처\n4. DB 커넥션 풀 상태 확인 (SQLAlchemy pool_size, max_overflow)\n5. 워커 프로세스가 죽고 재시작되는지 확인\n\n---\n\n**빠른 임시 조치 — 전역 예외 캡처**\n```python\nfrom fastapi import Request\nfrom fastapi.responses import JSONResponse\nimport traceback, logging\n\n@app.exception_handler(Exception)\nasync def global_exception_handler(request: Request, exc: Exception):\n    logging.error(traceback.format_exc())\n    return JSONResponse(status_code=500, content={\"detail\": \"Internal error\"})\n```\n이걸 붙이면 다음 500 발생 시 로그에 정확한 traceback이 찍힌다. 그 내용을 가져오면 원인을 바로 좁힐 수 있다.",
+      "charCount": 1149
+    },
+    {
+      "taskId": "H1",
+      "type": "subj",
+      "condition": "opus_plain",
+      "trial": 0,
+      "answer": "코드를 아직 못 본 상태이므로, \"원인 후보 + 진단 접근법\"을 정리해 드립니다. 간헐적(intermittent) 500은 \"항상 500\"과 진단 방향이 완전히 다릅니다. 항상 터지면 코드 로직 버그지만, 가끔 터지면 거의 대부분 (1) 외부 의존성 상태, (2) 동시성/공유 자원, (3) 특정 입력 데이터, (4) 인프라/리소스 중 하나입니다.\n\n## 1단계: 추측 말고 먼저 \"에러 자체\"를 확보하세요 (가장 중요)\n간헐적 버그는 재현이 어려우니, 다음에 터졌을 때 원인을 바로 잡도록 증거 수집부터 세팅합니다.\n\n- 서버 로그에서 500 발생 시점의 전체 스택트레이스를 확인하세요. FastAPI/Uvicorn은 처리 안 된 예외가 나면 traceback을 stderr로 찍습니다. 배포 환경(컨테이너/PaaS) 로그를 `Traceback (most recent call last)`로 검색.\n- 스택트레이스가 안 보인다면, 전역 예외 핸들러를 임시로 추가해 예외 타입·메시지·요청 정보를 로깅하세요:\n  ```python\n  import logging, traceback\n  from fastapi import Request\n  from fastapi.responses import JSONResponse\n\n  @app.exception_handler(Exception)\n  async def log_unhandled(request: Request, exc: Exception):\n      logging.exception(\"UNHANDLED %s %s\", request.method, request.url.path)\n      return JSONResponse(status_code=500, content={\"detail\": \"internal error\"})\n  ```\n- 가능하면 Sentry 같은 에러 트래커를 붙이면 간헐 버그 잡기가 훨씬 쉬워집니다(예외+요청 컨텍스트+빈도 자동 수집).\n- 핵심 질문 3개를 로그로 답하세요: (a) 예외 타입이 매번 같은가 다른가, (b) 특정 엔드포인트에만 나는가, (c) 특정 시간대/부하 구간에 몰리는가.\n\n## 2단계: 원인 후보 (간헐 500에서 흔한 순서대로)\n\n1. 외부 의존성 일시 실패 — DB·Redis·외부 API 호출이 타임아웃/커넥션 끊김. \"가끔\"의 1순위 원인. 재시도·타임아웃·예외 처리가 없으면 그대로 500. → DB 커넥션 풀 고갈, 외부 API rate limit, 네트워크 지연 의심.\n\n2. DB 커넥션 풀 고갈 — 동시 요청이 풀 크기를 넘으면 일부만 대기 끝에 실패. 부하가 몰릴 때만 터지는 전형적 패턴. 세션을 제대로 close/commit 안 하면 풀이 점점 새서 시간이 지날수록 빈도가 늘어남.\n\n3. 동시성/공유 상태 문제 — 전역 변수, 모듈 레벨 객체, thread-safe 하지 않은 클라이언트를 여러 요청이 공유. async 핸들러 안에서 블로킹 동기 코드(예: 동기 DB 드라이버, `requests`, `time.sleep`)를 쓰면 이벤트 루프가 막혀 간헐적으로 타임아웃/500.\n\n4. 특정 입력 데이터 — 평소엔 멀쩡한데 어떤 요청의 값에서만 `KeyError`/`None` 참조/파싱 실패/0으로 나누기. 가끔 그 입력이 오니까 가끔 터지는 것. Pydantic 검증을 통과한 뒤의 비즈니스 로직에서 자주 발생.\n\n5. 리소스/인프라 — 메모리 부족(OOM)으로 워커가 죽고 재시작되는 사이의 요청, 워커 타임아웃, 한 워커만 죽은 경우(여러 워커 중 일부에서만 발생하면 워커별 상태 차이 의심). 메모리 누수면 시간이 갈수록 빈도 증가.\n\n6. 배포/롤아웃 타이밍 — 무중단 배포 중 구버전·신버전 혼재, 스타트업이 덜 끝난 인스턴스로 라우팅, DB 마이그레이션 진행 중. 배포 직후에만 잠깐 난다면 이쪽.\n\n## 3단계: 좁혀가는 체크리스트 (코드 받으면 볼 순서)\n- async 핸들러 안에 블로킹 동기 호출이 섞여 있는가 (async/sync 혼용은 간헐 500의 단골).\n- DB 세션을 요청마다 제대로 열고 닫는가(`Depends`로 세션 주입+finally close), 풀 사이즈가 동시성에 비해 충분한가.\n- 외부 호출에 타임아웃·예외 처리·재시도가 있는가.\n- 모듈 레벨에서 공유되는 가변 상태/클라이언트가 동시 요청에 안전한가.\n- 의심 엔드포인트의 분기마다 None·빈 리스트·없는 키가 올 수 있는 지점이 방어돼 있는가.\n\n## 다음 단계 제안\n지금 가장 비용 싸고 효과 큰 행동은 \"다음 500의 스택트레이스를 확보하는 것\"입니다. 위 전역 예외 핸들러(또는 Sentry)를 붙여 한 번만 실제 traceback을 잡으면, 위 후보 6개 중 어느 것인지 거의 즉시 좁혀집니다. 추측으로 코드를 고치기 전에 증거부터 확보하는 게 간헐 버그의 정석입니다.\n\n원하시면 코드와 함께 (a) 배포 환경(컨테이너/PaaS·워커 수·gunicorn/uvicorn 설정), (b) DB 종류와 드라이버(sync/async), (c) 실제로 잡힌 스택트레이스를 주시면, 후보를 하나로 특정해 드리겠습니다.",
+      "charCount": 2485
+    },
+    {
+      "taskId": "H1",
+      "type": "subj",
+      "condition": "opus_plain",
+      "trial": 1,
+      "answer": "# FastAPI 간헐적 500 에러 — 원인 후보와 진단 접근법\n\n\"항상이 아니라 가끔\" 난다는 게 핵심 단서입니다. 코드가 항상 틀렸으면 매번 깨지니까요. **간헐적**이라는 건 보통 (1) 특정 입력에서만, (2) 동시성/부하 상황에서만, (3) 외부 의존성이 흔들릴 때만, (4) 여러 워커/인스턴스 중 일부에서만 발생한다는 뜻입니다. 코드를 보기 전에 이 4갈래로 좁혀가는 게 효율적입니다.\n\n---\n\n## 1. 먼저 할 일: 추측 말고 \"에러를 잡아서 보기\"\n\n원인 추정보다 **실제 스택트레이스(traceback) 확보**가 압도적으로 빠릅니다. 지금 500은 떨어지는데 로그에 트레이스가 안 남는 상태일 가능성이 높습니다.\n\n- 배포 로그(서버 stdout/stderr, `journalctl`, 컨테이너 로그, 플랫폼 로그 콘솔)부터 확인하세요. 500이 날 때 그 시각에 `Traceback ...`이 찍혀 있는지.\n- FastAPI 기본 동작상 핸들러에서 안 잡힌 예외는 500으로 나가고 트레이스는 서버 로그에만 남습니다. 로그를 안 보면 원인을 영영 못 좁힙니다.\n- 트레이스가 안 남거나 부실하면, 임시로 전역 예외 핸들러를 달아 예외 타입/메시지/요청정보를 구조적으로 로깅하세요:\n\n```python\nimport logging, traceback\nfrom fastapi import Request\nfrom fastapi.responses import JSONResponse\n\nlogger = logging.getLogger(\"app\")\n\n@app.exception_handler(Exception)\nasync def unhandled(request: Request, exc: Exception):\n    logger.error(\n        \"500 on %s %s\\n%s\",\n        request.method, request.url.path,\n        \"\".join(traceback.format_exception(exc)),\n    )\n    return JSONResponse(status_code=500, content={\"detail\": \"internal error\"})\n```\n\n이거 하나면 \"어느 엔드포인트에서, 어떤 예외 타입으로, 어떤 입력일 때\" 터지는지 다음 한 번에 잡힙니다.\n\n---\n\n## 2. 간헐성의 패턴부터 파악 (코드 보기 전 무료 진단)\n\n로그에서 다음을 교차해 보면 4갈래 중 어디인지 거의 갈립니다.\n\n- **시간 분포**: 특정 시각/주기에 몰리나? → 배치·크론·캐시 만료·토큰 만료 의심.\n- **엔드포인트 분포**: 한두 개 경로에만? → 그 핸들러 입력 처리 문제.\n- **부하 상관**: 트래픽 피크 때만? → 동시성/커넥션 풀/타임아웃.\n- **인스턴스 분포**: 여러 워커/파드 중 일부에서만? → 인스턴스별 상태 불일치(메모리 캐시, 마이그레이션 안 된 인스턴스, 환경변수 차이).\n\n---\n\n## 3. 가장 흔한 원인 후보 (간헐적 500 한정)\n\n빈도순으로 정리했습니다.\n\n**(A) 외부 의존성의 일시적 실패 — 가장 흔함**\n- DB 커넥션 풀 고갈/타임아웃: 부하 때 풀이 바닥나 `TimeoutError`/`OperationalError`. async 코드에서 동기 DB 드라이버를 잘못 섞었거나, 세션을 제대로 닫지 않아 풀이 누수되는 경우가 전형적입니다.\n- 외부 API/Redis/메시지큐 호출의 간헐적 타임아웃·연결 끊김. 재시도·타임아웃 미설정이면 그대로 500.\n- DB 커넥션이 idle 후 끊겼는데(서버측 타임아웃) 재연결 처리가 없어, 한동안 안 쓰다 첫 요청에서만 터지는 패턴.\n\n**(B) 특정 입력/엣지케이스에서만 터짐**\n- `None`/빈 값/예상 밖 타입에서 `KeyError`/`AttributeError`/`ZeroDivisionError`. 대부분 입력은 정상이라 \"가끔\"만 터집니다.\n- 외부 응답 JSON 구조가 가끔 다를 때 파싱 실패.\n- 타임존/날짜 경계, 빈 리스트 인덱싱 등.\n\n**(C) 동시성/상태 공유 문제 (워커 여러 개일 때)**\n- 모듈 전역에 둔 mutable 상태나 공유 클라이언트를 동시 요청이 건드려 레이스 컨디션.\n- async 핸들러 안에서 블로킹 호출(동기 I/O, CPU 무거운 작업)을 해서 이벤트 루프가 막히고 타임아웃.\n- 스레드 안전하지 않은 객체(일부 DB/HTTP 클라이언트)를 공유.\n\n**(D) 리소스 고갈**\n- 메모리 누수로 워커가 OOM되어 죽고 재시작되는 동안 일부 요청 실패.\n- 파일 디스크립터/소켓 누수(세션·커넥션 안 닫음).\n- 워커 수 부족으로 큐잉되다 타임아웃.\n\n**(E) 배포/환경 불일치**\n- 롤링 배포 중 구버전·신버전 인스턴스 혼재.\n- 인스턴스마다 환경변수·시크릿이 달라 일부만 실패.\n- 마이그레이션이 일부 인스턴스에만 적용된 상태.\n\n---\n\n## 4. 권장 진행 순서\n\n1. **로그에서 실제 트레이스 확보** (위 2의 전역 핸들러 추가가 최단 경로).\n2. 트레이스의 **예외 타입 + 엔드포인트 + 발생 패턴**으로 위 A~E 중 후보 2~3개로 좁힘.\n3. 가능하면 **재현**: 같은 입력 반복 호출, 또는 부하 도구(`hey`, `wrk`, `locust`)로 동시성 재현. 부하 때만 나면 (A)/(C)/(D).\n4. 좁혀진 후보에 맞춰 코드 확인 — DB 세션 라이프사이클, 타임아웃·재시도 설정, async/sync 혼용, 전역 상태.\n5. 고친 뒤엔 **모니터링/알람**을 붙여 재발 시 트레이스가 자동으로 쌓이게 하세요(에러 추적 도구 또는 구조적 로깅).\n\n---\n\n## 다음 단계 제안\n\n가장 빠른 길은 **배포 로그에서 500 시점의 트레이스 한 건을 떠 오시는 것**입니다. 그거 한 줄(예외 타입 + 어느 줄에서 터졌는지)이면 위 4갈래 중 어디인지 거의 확정되고, 그때 코드를 보면 핀포인트로 고칠 수 있습니다.\n\n코드와 배포 환경(워커 수, DB 종류와 드라이버가 async인지 sync인지, 외부 의존성, 배포 플랫폼)을 알려주시면 후보를 훨씬 더 좁혀 드릴 수 있습니다.",
+      "charCount": 2986
+    },
+    {
+      "taskId": "H2",
+      "type": "subj",
+      "condition": "sonnet_vff",
+      "trial": 0,
+      "answer": "스마트폰으로 영수증을 촬영하면 품목·금액·날짜를 자동으로 인식해 가계부에 기록한다. 수기 입력 오류와 누락을 줄이고, 누적된 지출 데이터를 바탕으로 카테고리별 소비 패턴을 시각화해 가계 관리의 출발점을 낮춘다. 특히 영수증 보관·정리 습관이 없는 사용자도 촬영 한 번으로 지출 이력을 보존할 수 있어, 가계부를 꾸준히 유지하기 어려웠던 계층의 재무 습관 형성에 도움이 될 수 있다. 다만 인식 정확도는 영수증 인쇄 품질과 촬영 환경에 따라 달라지며, 이 부분의 보완이 실사용 효과를 결정하는 주요 변수다.",
+      "charCount": 282
+    },
+    {
+      "taskId": "H2",
+      "type": "subj",
+      "condition": "sonnet_plain",
+      "trial": 0,
+      "answer": "스마트폰 카메라로 영수증을 촬영하면 품목·금액·날짜가 자동으로 가계부에 기록된다. 수기 입력 과정을 줄여 지출 기록의 누락을 낮추고, 사용자가 소비 데이터를 꾸준히 쌓을 수 있는 환경을 만든다. 축적된 데이터를 바탕으로 카테고리별 소비 현황을 시각화하면 지출 패턴을 객관적으로 파악할 수 있고, 불필요한 소비를 스스로 인지하고 조정하는 계기가 된다. OCR과 항목 분류 기술을 결합함으로써 편의점·마트·식당 등 다양한 업종의 영수증에 범용으로 적용 가능한 데이터 처리 구조를 검증할 수 있다. 입력 자동화로 절약된 시간만큼 사용자가 가계부를 지속적으로 활용할 가능성이 높아져, 단기 기록에 그치던 기존 앱의 이탈 문제를 완화하는 데 기여할 수 있다. (363자)",
+      "charCount": 370
+    },
+    {
+      "taskId": "H2",
+      "type": "subj",
+      "condition": "sonnet_generic",
+      "trial": 0,
+      "answer": "영수증 촬영만으로 수작업 입력 없이 지출 데이터가 구조화 JSON으로 자동 기록되어, 가계부 작성의 진입 장벽을 낮출 수 있다. 기존 가계부 앱은 사용자가 항목·금액·날짜·업종을 직접 입력해야 해 꾸준한 사용이 어렵다. 본 앱은 YOLO 객체탐지로 영수증 내 주요 필드를 검출하고 한국어 OCR로 텍스트를 읽어 구조화된 소비 기록을 자동 생성한다. 사용자는 별도 노력 없이 월별·항목별 지출 흐름을 파악할 수 있어 소비 패턴 인식과 예산 관리에 실질적으로 활용 가능하다. 다만 인식 정확도는 영수증 상태·촬영 각도·폰트 종류에 따라 달라질 수 있어, 실사용 환경에서의 정밀도 검증이 추가로 필요하다.\n\n(335자, ±5% 범위 내)",
+      "charCount": 353
+    },
+    {
+      "taskId": "H2",
+      "type": "subj",
+      "condition": "opus_plain",
+      "trial": 0,
+      "answer": "기대효과 (334자, 공백 포함 / 목표 350±5% 범위 332~367자 충족)\n\n영수증을 촬영하면 상호·항목·금액·날짜가 자동으로 인식·분류되어 가계부에 입력되므로, 일일이 손으로 적던 시간과 번거로움을 크게 줄일 수 있다. 입력 부담이 낮아지면 기록을 중도에 포기하는 일이 줄어 지출 누락이 감소하고, 누적된 데이터를 바탕으로 자신의 소비 패턴을 점검하기가 한결 쉬워진다. 종이 영수증을 따로 모아두거나 옮겨 적을 필요가 없어 보관 부담과 분실 위험도 함께 낮아진다. 또한 가계 관리에 익숙하지 않은 이용자도 별다른 학습 없이 시작할 수 있어 기록의 진입 장벽이 낮으며, 꾸준한 기록을 통해 불필요한 지출을 인지하고 합리적인 소비 습관을 들이는 데 도움을 줄 것으로 기대된다.\n\n(작성 원칙: \"최초·혁신적·획기적\" 등 과장 표현을 배제하고, 자동 입력으로 인한 시간 절감·기록 지속성 향상·지출 누락 감소·종이 영수증 분실 위험 감소·진입 장벽 완화라는 검증 가능한 편익만 서술. 글자 수는 python3 len()으로 직접 측정해 334자 확인.)",
+      "charCount": 535
+    },
+    {
+      "taskId": "H3",
+      "type": "subj",
+      "condition": "sonnet_vff",
+      "trial": 0,
+      "answer": "RAG는 언어 모델이 답변을 생성할 때 외부 문서를 검색해서 그 내용을 함께 참고하도록 만드는 구조다.\n\n일반적인 언어 모델은 학습 데이터로 얻은 지식만 갖고 있어서, 학습 이후에 생긴 정보나 내부 문서 같은 것은 모른다. 모델 자체를 다시 학습시키는 건 비용이 매우 크고, 그렇다고 모르는 걸 물어보면 그럴듯하게 틀린 답을 만들어내기도 한다. RAG는 이 문제를 \"생성 전에 관련 정보를 찾아서 프롬프트에 끼워 넣는\" 방식으로 해결한다.\n\n동작 순서를 따라가면 이렇다. 먼저 문서 모음을 미리 처리해서 벡터 임베딩으로 변환해 데이터베이스에 저장해 둔다. 사용자가 질문을 보내면, 그 질문도 같은 방식으로 벡터로 변환한 뒤 데이터베이스에서 의미적으로 가장 가까운 문서 조각들을 꺼낸다(Retrieval). 그 문서 조각들을 질문과 함께 모델에게 넘기면, 모델은 그 내용을 보고 답변을 생성한다(Augmented Generation).\n\n핵심 아이디어는 \"검색과 생성의 분리\"다. 지식을 모델 가중치 안에 다 욱여넣는 대신, 지식은 검색 가능한 저장소에 두고 모델은 읽고 정리하는 역할만 맡긴다. 덕분에 문서를 추가하거나 업데이트할 때 모델 재학습 없이도 반영할 수 있다.\n\n자주 쓰이는 곳은 사내 문서 기반 챗봇, 법령·논문 Q&A 시스템처럼 \"특정 문서 안에서 정확하게 답해야 하는\" 경우다. 구현 시 주의할 점은 검색이 실패하면(관련 없는 조각을 가져오면) 생성 품질도 같이 떨어진다는 것으로, 검색 단계의 품질이 전체 시스템 성능의 병목이 되는 경우가 많다.",
+      "charCount": 763
+    },
+    {
+      "taskId": "H3",
+      "type": "subj",
+      "condition": "sonnet_plain",
+      "trial": 0,
+      "answer": "RAG는 LLM(대형 언어 모델)이 **외부 문서를 검색해서 그 내용을 참고한 뒤 답변을 생성**하는 방법이다.\n\n---\n\n## 왜 필요한가\n\nGPT나 Claude 같은 언어 모델은 학습 시점의 데이터만 알고 있다. 그래서 두 가지 한계가 있다.\n\n1. **최신 정보를 모른다** — 학습 이후에 생긴 사건, 논문, 사내 문서 등은 모른다.\n2. **Hallucination(환각)이 생긴다** — 모르는 걸 그럴듯하게 지어낸다.\n\nRAG는 이 두 문제를 \"검색\"으로 해결한다.\n\n---\n\n## 동작 흐름 (3단계)\n\n```\n사용자 질문\n    ↓\n① Retrieval (검색)\n    → 질문을 벡터로 변환 (Embedding)\n    → 문서 DB에서 관련 문서 조각(chunk)을 찾아옴\n\n② Augmentation (증강)\n    → 찾아온 문서 조각을 LLM 프롬프트 앞에 붙임\n      \"다음 자료를 참고해서 답해라: [문서 내용] ... 질문: [원래 질문]\"\n\n③ Generation (생성)\n    → LLM이 외부 문서를 근거로 답변을 생성\n```\n\n---\n\n## 핵심 개념: Embedding + Vector DB\n\n- **Embedding**: 텍스트를 고차원 숫자 벡터로 바꾸는 것. 의미가 비슷한 문장은 벡터 공간에서 가까이 위치한다.\n- **Vector DB**: 이 벡터들을 저장하고, 쿼리 벡터와 가장 가까운 벡터를 빠르게 찾아주는 데이터베이스. FAISS, Pinecone, Chroma 등이 있다.\n- **Cosine similarity**: 두 벡터가 얼마나 방향이 비슷한지를 측정하는 척도. 검색 유사도 계산에 쓰인다.\n\n---\n\n## 구체적인 예시\n\n회사 내부 기술 문서 수천 개가 있다고 하자.\n\n1. 문서를 적당한 크기(예: 500토큰)의 **chunk**로 잘라둔다.\n2. 각 chunk를 Embedding 모델로 벡터로 변환해 Vector DB에 저장한다.\n3. 사용자가 \"온보딩 절차가 어떻게 돼?\" 라고 물으면, 이 질문도 벡터로 변환한다.\n4. Vector DB에서 가장 유사한 chunk 3~5개를 꺼낸다.\n5. LLM에게 \"이 문서들을 참고해서 답해라\"라고 함께 전달한다.\n6. LLM이 문서 내용을 근거로 정확한 답변을 생성한다.\n\n---\n\n## Fine-tuning과의 차이\n\n자주 혼동하는 개념이라 비교하면 이렇다.\n\n| 항목 | RAG | Fine-tuning |\n|---|---|---|\n| 방식 | 추론 시점에 외부 문서 검색 | 모델 가중치를 직접 재학습 |\n| 지식 갱신 | 문서 DB만 업데이트하면 됨 | 재학습 필요 |\n| 비용 | 상대적으로 낮음 | 높음 (GPU 학습 필요) |\n| 출처 추적 | 어떤 문서를 참조했는지 알 수 있음 | 불가능 |\n| 적합한 상황 | 최신 정보, 사내 문서 | 특정 말투·형식·도메인 전문화 |\n\n---\n\n## 실무에서 어디에 쓰이나\n\n- 기업 내부 문서 챗봇\n- 고객 지원 자동화 (제품 매뉴얼 기반 답변)\n- 논문 검색 보조 도구\n- 법률·의료 분야의 근거 기반 답변 시스템\n\n---\n\n## 한 줄 요약\n\n\"모르면 찾아보고 나서 말해라\" — RAG는 LLM에게 이 능력을 붙여주는 구조다.",
+      "charCount": 1569
+    },
+    {
+      "taskId": "H3",
+      "type": "subj",
+      "condition": "sonnet_generic",
+      "trial": 0,
+      "answer": "RAG는 LLM이 답변을 생성할 때 외부 문서를 실시간으로 검색해서 참고하는 기법이다.\n\n---\n\n## 왜 필요한가\n\nLLM은 학습 데이터 기준 시점까지의 지식만 갖고 있다. 최신 정보나 특정 도메인 내부 문서(사내 규정, 논문 DB 등)를 묻는 질문에는 답하지 못하거나 틀린 내용을 생성한다(할루시네이션).\n\n---\n\n## 동작 흐름\n\n```\n[사용자 질문]\n      ↓\n1. Retrieval (검색)\n   - 질문을 임베딩 벡터로 변환\n   - 벡터 DB에서 유사한 문서 청크를 k개 검색\n      ↓\n2. Augmentation (증강)\n   - 검색된 문서를 프롬프트에 \"참고 자료\"로 삽입\n      ↓\n3. Generation (생성)\n   - LLM이 참고 자료를 바탕으로 답변 생성\n```\n\n---\n\n## 핵심 구성 요소\n\n| 구성요소 | 역할 | 예시 |\n|---|---|---|\n| 임베딩 모델 | 텍스트 → 벡터 | text-embedding-3-small |\n| 벡터 DB | 유사 벡터 검색 | FAISS, Pinecone, Chroma |\n| LLM | 최종 답변 생성 | GPT-4, Claude |\n\n---\n\n## 구체적인 예시\n\n\"우리 회사 휴가 규정을 알려줘\"라는 질문이 들어오면:\n\n1. \"휴가 규정\"을 벡터로 변환\n2. 사내 문서 DB에서 관련 조항 3~5개 검색\n3. 프롬프트를 이렇게 구성:\n   참고 문서: [검색된 휴가 규정 조항]\n   질문: 우리 회사 휴가 규정을 알려줘\n4. LLM이 참고 문서 기반으로 답변\n\n---\n\n## 파인튜닝과 차이\n\n- 파인튜닝: 모델 가중치 자체를 재학습 → 비용 높음, 지식 업데이트 어려움\n- RAG: 모델은 그대로, 검색 DB만 교체 → 비용 낮음, 실시간 업데이트 쉬움\n\n최신 정보나 도메인 특화 지식이 필요할 때 파인튜닝보다 RAG가 실용적인 선택인 이유다.",
+      "charCount": 923
+    },
+    {
+      "taskId": "H3",
+      "type": "subj",
+      "condition": "opus_plain",
+      "trial": 0,
+      "answer": "# RAG (검색 증강 생성, Retrieval-Augmented Generation)\n\n## 한 줄 요약\nRAG는 **\"LLM에게 답하기 전에 관련 문서를 먼저 찾아서 손에 쥐어주는\"** 기법입니다. 모델이 자기 머릿속(학습된 파라미터)에만 의존하지 않고, 외부 지식 저장소에서 검색(Retrieval)한 내용을 참고해 답을 생성(Generation)합니다.\n\n---\n\n## 왜 필요한가? (동기)\n\nChatGPT 같은 LLM을 써본 적 있죠? 이 모델들에는 두 가지 고질적 문제가 있습니다.\n\n1. **지식 컷오프**: 모델은 특정 시점까지의 데이터로만 학습됩니다. \"어제 발표된 뉴스\"나 \"우리 회사 내부 문서\"는 모릅니다.\n2. **환각(Hallucination)**: 모르는 걸 모른다고 안 하고 그럴듯하게 지어냅니다.\n\n모델을 새 데이터로 다시 학습(fine-tuning)시키는 건 비싸고 느립니다. 그래서 나온 발상이 **\"모델을 바꾸지 말고, 질문할 때마다 필요한 자료를 같이 던져주자\"** 입니다. 이게 RAG입니다.\n\n비유하자면, 닫힌 책 시험(closed-book, 순수 LLM) vs **오픈북 시험(open-book, RAG)** 의 차이입니다. 오픈북에서는 머릿속에 다 외울 필요 없이, 문제를 보고 교재의 해당 페이지를 펴서 보고 답하면 됩니다.\n\n---\n\n## 어떻게 동작하는가? (핵심 파이프라인)\n\n크게 **사전 준비(인덱싱)** 와 **질의 시점(검색→생성)** 두 단계로 나뉩니다.\n\n### 1단계: 사전 준비 — 문서를 검색 가능하게 만들기\n1. **Chunking(청킹)**: 문서들을 적당한 크기 조각으로 자릅니다 (예: 문단 단위).\n2. **Embedding(임베딩)**: 각 조각을 임베딩 모델로 **벡터**(숫자 배열, 예: 768차원)로 변환합니다. 핵심은 *의미가 비슷한 텍스트는 벡터 공간에서 가까이 위치*한다는 점입니다. (\"강아지\"와 \"개\"는 가깝고, \"자동차\"와는 멉니다.)\n3. **Vector DB에 저장**: 이 벡터들을 벡터 데이터베이스(예: FAISS, Pinecone)에 저장합니다.\n\n### 2단계: 질의 시점 — 실제로 답할 때\n1. **Retrieval(검색)**: 사용자 질문도 똑같이 벡터로 변환한 뒤, 벡터 DB에서 **가장 가까운(=의미가 비슷한) 조각 top-k개**를 찾습니다. 보통 코사인 유사도 같은 거리 척도로 \"가깝다\"를 측정합니다.\n2. **Augmentation(증강)**: 찾아온 문서 조각들을 원래 질문과 합쳐 프롬프트를 만듭니다.\n   ```\n   아래 [참고자료]만 근거로 질문에 답해.\n   [참고자료]: (검색된 문서 조각들)\n   [질문]: 사용자의 원래 질문\n   ```\n3. **Generation(생성)**: 이 합쳐진 프롬프트를 LLM에 넣어 최종 답변을 생성합니다.\n\n```\n[질문] → 임베딩 → [벡터 검색] → 관련 문서 top-k → \n                                    ↓\n[질문 + 문서]를 합친 프롬프트 → [LLM] → [답변]\n```\n\n---\n\n## 자료구조/알고리즘 관점 (CS 2학년용 연결고리)\n\n여러분이 배운/배울 개념과 이렇게 연결됩니다.\n\n- **벡터 검색 = 최근접 이웃 탐색(Nearest Neighbor Search)** 문제입니다. 단순하게는 모든 벡터와 거리를 다 계산(brute-force, O(N))할 수 있지만, 데이터가 커지면 느립니다.\n- 그래서 **근사 최근접 이웃(ANN, Approximate NN)** 알고리즘을 씁니다. 대표적으로 **HNSW**(다층 그래프 + small-world 지름길로 빠르게 탐색)나 트리/해시 기반 인덱스가 쓰입니다. 정확도를 약간 포기하는 대신 속도를 크게 얻는 전형적인 트레이드오프입니다.\n- 즉 RAG의 \"검색\" 부분은 마법이 아니라, **인덱스 자료구조 위에서 거리 기반 탐색**을 하는 것입니다.\n\n---\n\n## 핵심 이점\n\n- **최신성**: 벡터 DB만 갱신하면 모델 재학습 없이 새 지식 반영.\n- **출처 추적(근거 제시)**: 어떤 문서를 보고 답했는지 인용할 수 있어 신뢰성 ↑, 환각 ↓.\n- **비용 효율**: fine-tuning보다 훨씬 저렴하고 빠름.\n- **도메인 특화**: 사내 위키, 법률 문서, 논문 등 비공개 데이터에 모델을 \"연결\"할 수 있음.\n\n## 한계 / 주의점\n\n- **\"검색이 나쁘면 답도 나쁘다\"**(garbage in, garbage out): 엉뚱한 조각을 가져오면 LLM도 엉뚱하게 답합니다. 검색 품질이 전체 성능을 좌우합니다.\n- 청크 크기, top-k 개수, 임베딩 모델 선택 같은 **튜닝 포인트**가 많습니다.\n- 모델의 컨텍스트 윈도우(한 번에 넣을 수 있는 토큰 한계) 안에 검색 결과를 욱여넣어야 합니다.\n\n---\n\n## 정리\n\nRAG = **검색 시스템(정보 검색/벡터 DB) + 생성 모델(LLM)** 의 결합입니다. \"똑똑하지만 최신 정보·내부 자료를 모르고 가끔 지어내는 모델\"에게, \"관련 자료를 그때그때 찾아 손에 쥐어줘서\" 더 정확하고 근거 있는 답을 하게 만드는 구조라고 이해하면 됩니다. 오픈북 시험을 떠올리면 직관이 정확합니다.",
+      "charCount": 2543
+    },
+    {
+      "taskId": "O1",
+      "type": "obj",
+      "condition": "sonnet_vff",
+      "trial": 0,
+      "answer": "```python\ndef merge_intervals(intervals: list[list[int]]) -> list[list[int]]:\n    if not intervals:\n        return []\n    intervals.sort(key=lambda x: x[0])\n    merged = [intervals[0]]\n    for start, end in intervals[1:]:\n        if start <= merged[-1][1]:\n            merged[-1][1] = max(merged[-1][1], end)\n        else:\n            merged.append([start, end])\n    return merged\n```",
+      "charCount": 384
+    },
+    {
+      "taskId": "O1",
+      "type": "obj",
+      "condition": "sonnet_vff",
+      "trial": 1,
+      "answer": "```python\ndef merge_intervals(intervals: list[list[int]]) -> list[list[int]]:\n    if not intervals:\n        return []\n    intervals.sort(key=lambda x: x[0])\n    merged = [intervals[0]]\n    for start, end in intervals[1:]:\n        if start <= merged[-1][1]:\n            merged[-1][1] = max(merged[-1][1], end)\n        else:\n            merged.append([start, end])\n    return merged\n```",
+      "charCount": 384
+    },
+    {
+      "taskId": "O1",
+      "type": "obj",
+      "condition": "sonnet_plain",
+      "trial": 0,
+      "answer": "```python\ndef merge_intervals(intervals: list[list[int]]) -> list[list[int]]:\n    if not intervals:\n        return []\n    intervals.sort(key=lambda x: x[0])\n    merged = [intervals[0]]\n    for start, end in intervals[1:]:\n        if start <= merged[-1][1]:\n            merged[-1][1] = max(merged[-1][1], end)\n        else:\n            merged.append([start, end])\n    return merged\n```",
+      "charCount": 384
+    },
+    {
+      "taskId": "O1",
+      "type": "obj",
+      "condition": "sonnet_plain",
+      "trial": 1,
+      "answer": "```python\ndef merge_intervals(intervals: list[list[int]]) -> list[list[int]]:\n    if not intervals:\n        return []\n    intervals.sort(key=lambda x: x[0])\n    merged = [intervals[0]]\n    for start, end in intervals[1:]:\n        if start <= merged[-1][1]:\n            merged[-1][1] = max(merged[-1][1], end)\n        else:\n            merged.append([start, end])\n    return merged\n```",
+      "charCount": 384
+    },
+    {
+      "taskId": "O1",
+      "type": "obj",
+      "condition": "sonnet_generic",
+      "trial": 0,
+      "answer": "```python\ndef merge_intervals(intervals: list[list[int]]) -> list[list[int]]:\n    if not intervals:\n        return []\n    intervals.sort(key=lambda x: x[0])\n    merged = [intervals[0]]\n    for start, end in intervals[1:]:\n        if start <= merged[-1][1]:\n            merged[-1][1] = max(merged[-1][1], end)\n        else:\n            merged.append([start, end])\n    return merged\n```",
+      "charCount": 384
+    },
+    {
+      "taskId": "O1",
+      "type": "obj",
+      "condition": "sonnet_generic",
+      "trial": 1,
+      "answer": "```python\ndef merge_intervals(intervals: list[list[int]]) -> list[list[int]]:\n    if not intervals:\n        return []\n    intervals.sort(key=lambda x: x[0])\n    merged = [intervals[0]]\n    for start, end in intervals[1:]:\n        if start <= merged[-1][1]:\n            merged[-1][1] = max(merged[-1][1], end)\n        else:\n            merged.append([start, end])\n    return merged\n```",
+      "charCount": 384
+    },
+    {
+      "taskId": "O1",
+      "type": "obj",
+      "condition": "opus_plain",
+      "trial": 0,
+      "answer": "```python\ndef merge_intervals(intervals: list[list[int]]) -> list[list[int]]:\n    if not intervals:\n        return []\n    intervals = sorted(intervals, key=lambda x: x[0])\n    merged = [list(intervals[0])]\n    for start, end in intervals[1:]:\n        if start <= merged[-1][1]:\n            merged[-1][1] = max(merged[-1][1], end)\n        else:\n            merged.append([start, end])\n    return merged\n```",
+      "charCount": 405
+    },
+    {
+      "taskId": "O1",
+      "type": "obj",
+      "condition": "opus_plain",
+      "trial": 1,
+      "answer": "```python\ndef merge_intervals(intervals: list[list[int]]) -> list[list[int]]:\n    if not intervals:\n        return []\n    intervals_sorted = sorted(intervals, key=lambda x: x[0])\n    merged = [list(intervals_sorted[0])]\n    for start, end in intervals_sorted[1:]:\n        if start <= merged[-1][1]:\n            merged[-1][1] = max(merged[-1][1], end)\n        else:\n            merged.append([start, end])\n    return merged\n```",
+      "charCount": 426
+    },
+    {
+      "taskId": "O2",
+      "type": "obj",
+      "condition": "sonnet_vff",
+      "trial": 0,
+      "answer": "1번째 줄의 `basket=[]`이 문제입니다. 파이썬에서 기본 인자(default argument)는 함수 정의 시점에 단 한 번만 평가되므로, 호출마다 새 리스트가 생기는 게 아니라 동일한 리스트 객체가 재사용되어 이전 호출의 항목이 누적됩니다.",
+      "charCount": 139
+    },
+    {
+      "taskId": "O2",
+      "type": "obj",
+      "condition": "sonnet_plain",
+      "trial": 0,
+      "answer": "1번 줄에서 기본값 `basket=[]`로 가변 객체(리스트)를 사용하면 함수가 처음 정의될 때 단 한 번만 생성되어 모든 호출에서 같은 리스트를 공유하게 되므로, 호출할 때마다 이전 호출의 항목이 누적되는 버그가 있습니다.",
+      "charCount": 125
+    },
+    {
+      "taskId": "O2",
+      "type": "obj",
+      "condition": "sonnet_generic",
+      "trial": 0,
+      "answer": "1번째 줄에서 기본 인자 `basket=[]`가 함수 정의 시 단 한 번만 생성되어 모든 호출에서 같은 리스트 객체를 공유하므로, 호출 간 상태가 누적되는 mutable default argument 버그가 있습니다.",
+      "charCount": 121
+    },
+    {
+      "taskId": "O2",
+      "type": "obj",
+      "condition": "opus_plain",
+      "trial": 0,
+      "answer": "2번째 줄(가변 기본 인자 문제): `basket=[]` 기본값은 함수 정의 시 단 한 번만 생성되어 호출마다 공유되므로, 인자 없이 여러 번 호출하면 이전 항목들이 계속 누적된다(1번째 줄의 `basket=[]` 정의가 근본 원인).",
+      "charCount": 131
+    },
+    {
+      "taskId": "O3",
+      "type": "obj",
+      "condition": "sonnet_vff",
+      "trial": 0,
+      "answer": "{\"name\": \"김민수\", \"amount\": 1250000, \"date\": \"2026-03-15\"}",
+      "charCount": 56
+    },
+    {
+      "taskId": "O3",
+      "type": "obj",
+      "condition": "sonnet_plain",
+      "trial": 0,
+      "answer": "{\"name\": \"김민수\", \"amount\": 1250000, \"date\": \"2026-03-15\"}",
+      "charCount": 56
+    },
+    {
+      "taskId": "O3",
+      "type": "obj",
+      "condition": "sonnet_generic",
+      "trial": 0,
+      "answer": "{\"name\": \"김민수\", \"amount\": 1250000, \"date\": \"2026-03-15\"}",
+      "charCount": 56
+    },
+    {
+      "taskId": "O3",
+      "type": "obj",
+      "condition": "opus_plain",
+      "trial": 0,
+      "answer": "{\"name\": \"김민수\", \"amount\": 1250000, \"date\": \"2026-03-15\"}",
+      "charCount": 56
+    }
+  ],
+  "judged": {
+    "H1": {
+      "mapping": {
+        "A": "sonnet_vff",
+        "B": "sonnet_plain",
+        "C": "sonnet_generic",
+        "D": "opus_plain"
+      },
+      "verdict": {
+        "ranking": [
+          "D",
+          "A",
+          "B",
+          "C"
+        ],
+        "scores": {
+          "A": 89,
+          "B": 84,
+          "C": 78,
+          "D": 91
+        },
+        "rationale": "네 답변 모두 핵심(추측 전에 traceback 확보가 1순위)을 정확히 짚었고 기술적 오류도 없다. D가 1위인 이유는 \"간헐적 vs 항상\"의 진단 방향이 근본적으로 다르다는 점을 도입부에서 명확히 프레이밍하고(질문의 '간헐적' 단서를 가장 정직하게 활용), 증거 확보→원인 후보(빈도순)→코드 받으면 볼 체크리스트→다음 단계로 흐름이 가장 논리적이며, 무중단 배포 중 신구버전 혼재 같은 간헐 500의 실전적 후보까지 포함하면서도 마지막에 사용자에게 요청할 구체 정보(배포환경·DB드라이버·traceback)를 정확히 제시해 실질 유용성이 가장 높다. A는 분량 대비 밀도가 매우 뛰어나고 traceback 종류별 분기(DB/None참조/asyncio/OOM)를 구체적 예외명과 함께 제시해 즉시 행동 가능하며 \"지금 할 한 가지\"로 깔끔히 수렴한다(코드 블록 없이도 실무적이라 군더더기 없음). B는 표·코드 예제(pool_recycle, exception_handler, Sentry)가 가장 풍부하고 발생 패턴 매트릭스가 진단에 실질적으로 유용하나, 질문이 \"코드 아직 못 봤다\"는 초기 상담임을 감안하면 다소 길고 백과사전식이라 우선순위가 약간 흐려진다. C는 정확하고 간결하며 traceback.print_exc 예제도 적절하나, B·D에 비해 깊이와 구체성(빈도순 정렬, 배포 타이밍, 후속 질문 설계)이 얕아 4위. 네 답 모두 traceback.print_exc/logging.exception 같은 핸들러 제안은 타당하다."
+      }
+    },
+    "H2": {
+      "mapping": {
+        "A": "sonnet_plain",
+        "B": "sonnet_generic",
+        "C": "opus_plain",
+        "D": "sonnet_vff"
+      },
+      "verdict": {
+        "ranking": [
+          "A",
+          "B",
+          "C",
+          "D"
+        ],
+        "scores": {
+          "A": 90,
+          "B": 85,
+          "C": 78,
+          "D": 55
+        },
+        "rationale": "요청의 가장 명확하고 측정 가능한 제약은 \"정확히 350자(±5%=332~367자)\"이며 직접 글자수를 측정해 평가했다. A(363자)는 범위 내이면서 자동기록→누락감소→시각화→범용성 검증→이탈 완화로 논리가 매끄럽고 과장이 없어 1위. B(335자)도 범위 내이고 한계(촬영각도·폰트에 따른 정밀도)를 정직하게 명시해 균형이 좋으나 \"YOLO·구조화 JSON\" 같은 구현 기술이 '기대효과'에는 다소 들어간 느낌이라 2위. C(334자)는 본문 자체는 범위 내이고 편익(시간절감·지속성·누락감소·분실위험·진입장벽)을 검증가능하게 잘 서술했으나, 글자수 헤더와 하단 \"작성 원칙\" 메타블록이 산출물 밖에 붙어 가독성과 깔끔함을 떨어뜨려 3위. D(282자)는 내용 품질과 한계 명시는 우수하지만 ±5% 범위(332자)에 한참 못 미쳐(편차 -68자) 요청의 유일한 정량 제약을 위반했으므로 최하위."
+      }
+    },
+    "H3": {
+      "mapping": {
+        "A": "sonnet_generic",
+        "B": "opus_plain",
+        "C": "sonnet_vff",
+        "D": "sonnet_plain"
+      },
+      "verdict": {
+        "ranking": [
+          "B",
+          "D",
+          "A",
+          "C"
+        ],
+        "scores": {
+          "A": 84,
+          "B": 95,
+          "C": 80,
+          "D": 89
+        },
+        "rationale": "네 답변 모두 RAG의 핵심(검색→증강→생성, 임베딩, 벡터 DB, 환각/지식 컷오프 해결, 파인튜닝 대비)을 정확히 설명해 사실 오류는 없다. 차이는 대상(CS 2학년)에 대한 맞춤성과 깊이다. B는 가장 우수하다 — 오픈북 시험 비유로 직관을 잡아주고, 인덱싱/질의 두 단계를 명확히 분리했으며, 특히 \"벡터 검색 = 최근접 이웃 탐색(brute-force O(N)→ANN/HNSW 트레이드오프)\"이라는 자료구조·알고리즘 연결고리를 넣어 CS 학부생 수준에 정확히 맞췄다. 한계(검색 품질이 병목, 컨텍스트 윈도우, 튜닝 포인트)까지 균형 있게 다뤄 교육적 완결성이 가장 높다. D는 그다음으로, 깔끔한 3단계 흐름도, 임베딩/벡터DB/코사인 유사도 정의, 구체 예시, 잘 정리된 파인튜닝 비교표를 갖춰 가독성과 실용성이 뛰어나지만 B의 CS 알고리즘 심화 연결이 없다. A는 표·흐름도·예시·파인튜닝 비교가 잘 짜여 명료하나 청킹/유사도 척도 등 일부 메커니즘이 얕고 학년 맞춤 심화가 약하다. C는 정확하고 산문체로 개념의 본질(\"검색과 생성의 분리\")을 잘 짚었으나 시각적 구조·구체 예시·CS 연결이 적어 같은 대상 기준 정보 밀도와 가독성에서 뒤처진다. 분량은 B>D가 주제 깊이에 적절하고, A는 적당, C는 다소 간결하다."
+      }
+    }
+  }
+}

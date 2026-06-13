@@ -1,0 +1,168 @@
+{
+  "O1": {
+    "sonnet_vff": [
+      {
+        "trial": 0,
+        "pass": true,
+        "detail": "7/7 케이스"
+      },
+      {
+        "trial": 1,
+        "pass": true,
+        "detail": "7/7 케이스"
+      }
+    ],
+    "sonnet_plain": [
+      {
+        "trial": 0,
+        "pass": true,
+        "detail": "7/7 케이스"
+      },
+      {
+        "trial": 1,
+        "pass": true,
+        "detail": "7/7 케이스"
+      }
+    ],
+    "sonnet_generic": [
+      {
+        "trial": 0,
+        "pass": true,
+        "detail": "7/7 케이스"
+      },
+      {
+        "trial": 1,
+        "pass": true,
+        "detail": "7/7 케이스"
+      }
+    ],
+    "opus_plain": [
+      {
+        "trial": 0,
+        "pass": true,
+        "detail": "7/7 케이스"
+      },
+      {
+        "trial": 1,
+        "pass": true,
+        "detail": "7/7 케이스"
+      }
+    ]
+  },
+  "O2": {
+    "sonnet_vff": [
+      {
+        "trial": 0,
+        "pass": true,
+        "line_ok": true,
+        "cause_ok": true
+      }
+    ],
+    "sonnet_plain": [
+      {
+        "trial": 0,
+        "pass": true,
+        "line_ok": true,
+        "cause_ok": true
+      }
+    ],
+    "sonnet_generic": [
+      {
+        "trial": 0,
+        "pass": true,
+        "line_ok": true,
+        "cause_ok": true
+      }
+    ],
+    "opus_plain": [
+      {
+        "trial": 0,
+        "pass": true,
+        "line_ok": true,
+        "cause_ok": true
+      }
+    ]
+  },
+  "O3": {
+    "sonnet_vff": [
+      {
+        "trial": 0,
+        "fields": 3,
+        "detail": {
+          "name": {
+            "got": "김민수",
+            "ok": true
+          },
+          "amount": {
+            "got": 1250000,
+            "ok": true
+          },
+          "date": {
+            "got": "2026-03-15",
+            "ok": true
+          }
+        }
+      }
+    ],
+    "sonnet_plain": [
+      {
+        "trial": 0,
+        "fields": 3,
+        "detail": {
+          "name": {
+            "got": "김민수",
+            "ok": true
+          },
+          "amount": {
+            "got": 1250000,
+            "ok": true
+          },
+          "date": {
+            "got": "2026-03-15",
+            "ok": true
+          }
+        }
+      }
+    ],
+    "sonnet_generic": [
+      {
+        "trial": 0,
+        "fields": 3,
+        "detail": {
+          "name": {
+            "got": "김민수",
+            "ok": true
+          },
+          "amount": {
+            "got": 1250000,
+            "ok": true
+          },
+          "date": {
+            "got": "2026-03-15",
+            "ok": true
+          }
+        }
+      }
+    ],
+    "opus_plain": [
+      {
+        "trial": 0,
+        "fields": 3,
+        "detail": {
+          "name": {
+            "got": "김민수",
+            "ok": true
+          },
+          "amount": {
+            "got": 1250000,
+            "ok": true
+          },
+          "date": {
+            "got": "2026-03-15",
+            "ok": true
+          }
+        }
+      }
+    ]
+  }
+}
