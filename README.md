@@ -6,7 +6,6 @@
 
 Fable5 구조를 넣은 Sonnet이 Opus와 블라인드 테스트에서 사실상 비겼다!!([bench/](bench/RESULTS.md)) 
 그것도 답 1건당 비용 3분의 1로.
----
 
 ## 왜 Sonnet+VFF인가
 
