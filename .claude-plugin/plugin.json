@@ -1,6 +1,6 @@
 {
   "name": "value-for-fable",
-  "version": "1.0.1",
+  "version": "1.0.6",
   "description": "Fable 5 수준의 품질을 Sonnet 단가에 — VFF 스킬·에이전트·output style·드리프트 방지 훅 묶음 (Sonnet 전용)",
   "author": {
     "name": "itsinseong",
