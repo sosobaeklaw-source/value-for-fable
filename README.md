@@ -205,6 +205,19 @@ chmod +x ~/.claude/hooks/reminder.sh
 설치 후 새 세션에서 `/model sonnet` → `VFF` 입력으로 즉시 사용 가능하다.  
 Output Style 상시 모드는 `/config` → Output style → VFF 선택.
 
+### Mac mini / MacBook 동기화
+
+양쪽 Mac에서 같은 VFF 기본값과 같은 작업공간을 유지하려면 repo 루트에서 아래 스크립트를 쓴다. 기본 대상은 `macbookpro:/Users/son-won-il/Documents/Codex/value-for-fable`이다.
+
+```bash
+./scripts/sync-vff-workspace.sh status
+./scripts/sync-vff-workspace.sh push
+./scripts/sync-vff-workspace.sh pull
+./scripts/sync-vff-workspace.sh verify
+```
+
+`push`는 현재 Mac의 파일을 MacBook으로, `pull`은 MacBook의 파일을 현재 Mac으로 맞춘다. `.git`, `.omx`, `node_modules`, sync backup 디렉터리는 rsync 대상에서 제외한다. 삭제 동기화가 필요한 파일은 `.vff-sync-backups/` 아래에 백업된다. `verify`는 push 후 양쪽 플러그인 설치와 Sonnet smoke까지 실행한다.
+
 ---
 
 ## 한계
