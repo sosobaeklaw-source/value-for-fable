@@ -181,8 +181,13 @@ run_install() {
 }
 
 run_smoke() {
-  "$repo_root/scripts/smoke-vff-default.sh" /tmp/vff-default-smoke-local
-  remote_repo './scripts/smoke-vff-default.sh /tmp/vff-default-smoke-remote'
+  local local_status=0
+  local remote_status=0
+  "$repo_root/scripts/smoke-vff-default.sh" /tmp/vff-default-smoke-local || local_status=$?
+  remote_repo './scripts/smoke-vff-default.sh /tmp/vff-default-smoke-remote' || remote_status=$?
+  if [ "$local_status" -ne 0 ] || [ "$remote_status" -ne 0 ]; then
+    return 1
+  fi
 }
 
 case "$cmd" in
