@@ -207,7 +207,7 @@ Output Style 상시 모드는 `/config` → Output style → VFF 선택.
 
 ### Mac mini / MacBook 동기화
 
-양쪽 Mac에서 같은 VFF 기본값과 같은 작업공간을 유지하려면 repo 루트에서 아래 스크립트를 쓴다. 기본 대상은 `macbookpro:/Users/son-won-il/Documents/Codex/value-for-fable`이다.
+양쪽 Mac에서 같은 VFF 기본값과 같은 작업공간을 유지하려면 repo 루트에서 아래 스크립트를 쓴다. Mac mini에서 실행하면 기본 peer는 `macbookpro:/Users/son-won-il/Documents/Codex/value-for-fable`, MacBook에서 실행하면 기본 peer는 `macmini:/Users/son-won-il/Documents/Codex/2026-06-14-https-github-com-itsinseong-value-for`다. `push`는 현재 HEAD를 fork에 먼저 게시한 뒤 파일과 git 메타데이터를 맞춘다.
 
 ```bash
 ./scripts/sync-vff-workspace.sh status

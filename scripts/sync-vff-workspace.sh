@@ -6,18 +6,20 @@ usage() {
 Usage: scripts/sync-vff-workspace.sh <status|push|pull|install|smoke|verify> [target] [remote_dir]
 
 Defaults:
-  target     macbookpro
-  remote_dir /Users/son-won-il/Documents/Codex/value-for-fable
+  target     macbookpro on Mac mini, macmini on MacBook
+  remote_dir peer workspace path for the detected Mac
 
 Environment:
   VFF_SSH_CONFIG    optional ssh config path
   VFF_SSH_USER      optional ssh user
   VFF_SSH_IDENTITY  optional ssh identity file
+  VFF_PEER_TARGET   override default peer ssh target
+  VFF_PEER_DIR      override default peer workspace path
   VFF_SYNC_BACKUP   backup directory name for rsync --delete backups
 
 Commands:
   status   print local/remote commit, plugin state, and rsync dry-run drift
-  push     sync this workspace to the remote Mac and align remote git metadata
+  push     publish HEAD, sync this workspace to the remote Mac, and align remote git metadata
   pull     sync the remote Mac workspace back to this Mac and align local git metadata
   install  run VFF default installer on both Macs
   smoke    run VFF smoke on both Macs
@@ -25,10 +27,26 @@ Commands:
 EOF
 }
 
-cmd="${1:-status}"
-target="${2:-macbookpro}"
-remote_dir="${3:-/Users/son-won-il/Documents/Codex/value-for-fable}"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+local_host="$(hostname)"
+
+default_target() {
+  case "$local_host" in
+    *MacBook*|*Macbook*) printf '%s\n' "${VFF_PEER_TARGET:-macmini}" ;;
+    *) printf '%s\n' "${VFF_PEER_TARGET:-macbookpro}" ;;
+  esac
+}
+
+default_remote_dir() {
+  case "$local_host" in
+    *MacBook*|*Macbook*) printf '%s\n' "${VFF_PEER_DIR:-/Users/son-won-il/Documents/Codex/2026-06-14-https-github-com-itsinseong-value-for}" ;;
+    *) printf '%s\n' "${VFF_PEER_DIR:-/Users/son-won-il/Documents/Codex/value-for-fable}" ;;
+  esac
+}
+
+cmd="${1:-status}"
+target="${2:-$(default_target)}"
+remote_dir="${3:-$(default_remote_dir)}"
 remote_dir_q="$(printf '%q' "$remote_dir")"
 backup_name="${VFF_SYNC_BACKUP:-.vff-sync-backups/$(date +%Y%m%dT%H%M%S)}"
 
@@ -72,6 +90,10 @@ local_head() {
   git -C "$repo_root" rev-parse HEAD
 }
 
+publish_head() {
+  git -C "$repo_root" push -q fork HEAD:master
+}
+
 ensure_remote_dir() {
   remote "mkdir -p $remote_dir_q"
 }
@@ -92,10 +114,12 @@ ensure_remote_git() {
 ensure_local_git_from_remote() {
   local remote_head
   remote_head="$(remote_repo "git rev-parse HEAD")"
+  git -C "$repo_root" fetch -q fork master
   git -C "$repo_root" reset --mixed -q "$remote_head"
 }
 
 sync_push() {
+  publish_head
   ensure_remote_dir
   rsync "${rsync_common[@]}" -e "${rsync_ssh[*]}" "$repo_root/" "$target:${remote_dir%/}/"
   ensure_remote_git
@@ -158,7 +182,7 @@ run_install() {
 
 run_smoke() {
   "$repo_root/scripts/smoke-vff-default.sh" /tmp/vff-default-smoke-local
-  remote_repo './scripts/smoke-vff-default.sh /tmp/vff-default-smoke-macbook'
+  remote_repo './scripts/smoke-vff-default.sh /tmp/vff-default-smoke-remote'
 }
 
 case "$cmd" in
